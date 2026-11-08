@@ -1,0 +1,779 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FireGuard - Hệ thống báo cháy</title>
+
+    <!-- Thu vien MQTT va bieu do -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+
+        header {
+            background: #10243a;
+            color: white;
+            padding: 24px 6%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        header h1 {
+            font-size: 25px;
+            margin-bottom: 6px;
+        }
+
+        header p {
+            color: #bdcddd;
+            font-size: 14px;
+        }
+
+        .connection {
+            padding: 9px 14px;
+            border-radius: 20px;
+            background: #475569;
+            font-size: 13px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 28px auto;
+            padding: 0 20px;
+        }
+
+        .section-title {
+            margin: 25px 0 16px;
+            font-size: 19px;
+        }
+
+        .grid, .control-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background: white;
+            padding: 22px;
+            border-radius: 15px;
+            box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06);
+            border: 1px solid #e2e8f0;
+        }
+
+        .metric-top {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .metric-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            font-size: 25px;
+            background: #e0f2fe;
+        }
+
+        .temperature-icon {
+            background: #ffedd5;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+
+        .metric-note {
+            margin-top: 12px;
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        .status-card {
+            margin-top: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 13px;
+            border-radius: 20px;
+            background: #dcfce7;
+            color: #166534;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .status-badge.danger {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .status-badge.waiting {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .chart-card {
+            min-width: 0;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 260px;
+            margin-top: 18px;
+        }
+
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        select {
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: white;
+            font-size: 14px;
+        }
+
+        .control-card h3 {
+            margin-bottom: 8px;
+        }
+
+        .control-card p {
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 11px 18px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        button:disabled, select:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .btn-on {
+            background: #16a34a;
+        }
+
+        .btn-off {
+            background: #475569;
+        }
+
+        .device-state {
+            display: inline-block;
+            margin-top: 17px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .help {
+            margin-top: 22px;
+            padding: 16px;
+            border-radius: 10px;
+            background: #e0f2fe;
+            color: #075985;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        footer {
+            text-align: center;
+            padding: 25px 15px;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        @media (max-width: 650px) {
+            .grid, .control-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 21px;
+            }
+
+            .metric-value {
+                font-size: 29px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <div>
+        <h1>🔥 FireGuard</h1>
+        <p>Hệ thống giám sát và cảnh báo cháy gia đình bằng ESP32</p>
+    </div>
+    <div class="connection" id="connectionStatus">
+        ● Đang kết nối MQTT...
+    </div>
+</header>
+
+<main class="container">
+
+    <h2 class="section-title">📊 Giám sát môi trường</h2>
+
+    <section class="grid">
+        <div class="card">
+            <div class="metric-top">
+                <div class="metric-icon">☁️</div>
+                <div>
+                    <div class="metric-label">Nồng độ khí gas / khói</div>
+                    <div style="font-size:13px;color:#64748b">Cảm biến MQ-2</div>
+                </div>
+            </div>
+
+            <div class="metric-value">
+                <span id="gasValue">--</span>
+            </div>
+            <div class="metric-note">Ngưỡng cảnh báo: 2000 ADC</div>
+        </div>
+
+        <div class="card">
+            <div class="metric-top">
+                <div class="metric-icon temperature-icon">🌡️</div>
+                <div>
+                    <div class="metric-label">Nhiệt độ môi trường</div>
+                    <div style="font-size:13px;color:#64748b">Cảm biến DS18B20</div>
+                </div>
+            </div>
+
+            <div class="metric-value">
+                <span id="temperatureValue">--</span>
+                <span style="font-size:20px">°C</span>
+            </div>
+            <div class="metric-note">Ngưỡng cảnh báo: 50°C</div>
+        </div>
+    </section>
+
+    <section class="card status-card">
+        <div>
+            <div class="metric-label">Trạng thái hệ thống</div>
+            <h3 id="alarmText" style="margin-top:8px">
+                Đang chờ dữ liệu từ ESP32
+            </h3>
+        </div>
+        <span class="status-badge waiting" id="alarmBadge">ĐANG CHỜ</span>
+    </section>
+
+    <h2 class="section-title">📈 Biểu đồ thời gian thực</h2>
+
+    <section class="grid">
+        <div class="card chart-card">
+            <h3>Nồng độ khí gas / khói</h3>
+            <div class="chart-container">
+                <canvas id="gasChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card chart-card">
+            <h3>Nhiệt độ môi trường (°C)</h3>
+            <div class="chart-container">
+                <canvas id="temperatureChart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <h2 class="section-title">🎛️ Điều khiển thiết bị</h2>
+
+    <section class="card" style="margin-bottom:18px">
+        <div class="control-header">
+            <div>
+                <h3>Chế độ hoạt động</h3>
+                <p style="font-size:13px;color:#64748b;margin-top:6px">
+                    AUTO: ESP32 tự điều khiển. MANUAL: điều khiển bằng nút.
+                </p>
+            </div>
+
+            <select id="modeSelect" disabled>
+                <option value="AUTO">AUTO - Tự động</option>
+                <option value="MANUAL">MANUAL - Thủ công</option>
+            </select>
+        </div>
+
+        <div class="device-state" id="modeState">Đang chờ MQTT...</div>
+    </section>
+
+    <section class="control-grid">
+        <div class="card control-card">
+            <h3>🌀 Quạt thông gió</h3>
+            <p>Bật quạt khi nồng độ khí gas vượt ngưỡng trong chế độ AUTO.</p>
+
+            <div class="button-row">
+                <button class="btn-on" id="fanOn"
+                    onclick="controlDevice('fan','ON')" disabled>
+                    BẬT QUẠT
+                </button>
+                <button class="btn-off" id="fanOff"
+                    onclick="controlDevice('fan','OFF')" disabled>
+                    TẮT QUẠT
+                </button>
+            </div>
+
+            <div class="device-state">
+                Trạng thái: <span id="fanState">Chưa có dữ liệu</span>
+            </div>
+        </div>
+
+        <div class="card control-card">
+            <h3>💧 Máy bơm nước</h3>
+            <p>Bật máy bơm khi nhiệt độ vượt ngưỡng trong chế độ AUTO.</p>
+
+            <div class="button-row">
+                <button class="btn-on" id="pumpOn"
+                    onclick="controlDevice('pump','ON')" disabled>
+                    BẬT BƠM
+                </button>
+                <button class="btn-off" id="pumpOff"
+                    onclick="controlDevice('pump','OFF')" disabled>
+                    TẮT BƠM
+                </button>
+            </div>
+
+            <div class="device-state">
+                Trạng thái: <span id="pumpState">Chưa có dữ liệu</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="help">
+        <strong>Hướng dẫn kiểm tra</strong><br>
+        1. Chạy mô phỏng ESP32 trên Wokwi.<br>
+        2. Chờ trạng thái MQTT đã kết nối.<br>
+        3. Thử thay đổi giá trị cảm biến để xem dữ liệu và biểu đồ.<br>
+        4. Chọn MANUAL để điều khiển quạt và máy bơm bằng nút.<br>
+        5. Chọn AUTO để ESP32 điều khiển theo ngưỡng đã lập trình.
+    </div>
+
+</main>
+
+<footer>
+    FireGuard | ESP32 + MQ-2 + DS18B20 + MQTT
+</footer>
+
+<script>
+    // ======================================
+    // 1. CAU HINH MQTT
+    // ======================================
+
+    const MQTT_URL = "wss://broker.hivemq.com:8884/mqtt";
+
+    const topics = {
+        gas:          "viu/fire/gas",
+        temperature:  "viu/fire/temperature",
+        alarm:        "viu/fire/alarm",
+        fanState:     "viu/fire/fan/state",
+        pumpState:    "viu/fire/pump/state",
+
+        // Topic ESP32 gui trang thai ve web
+        mode:         "viu/fire/mode",
+
+        // Topic web gui lenh chuyen che do
+        modeCmd:      "viu/fire/mode/set",
+
+        fanCmd:       "viu/fire/fan/set",
+        pumpCmd:      "viu/fire/pump/set"
+    };
+
+    const GAS_THRESHOLD = 2000;
+    const TEMP_THRESHOLD = 50;
+
+    let gasValue = null;
+    let temperatureValue = null;
+    let alarmMessage = null;
+    let currentMode = "AUTO";
+    let modeConfirmed = false;
+
+    const connectionStatus =
+        document.getElementById("connectionStatus");
+
+    // ======================================
+    // 2. KHOI TAO BIEU DO
+    // ======================================
+
+    function createChart(canvasId, label, color) {
+        return new Chart(document.getElementById(canvasId), {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [{
+                    label: label,
+                    data: [],
+                    borderColor: color,
+                    backgroundColor: color + "22",
+                    fill: true,
+                    tension: 0.25,
+                    pointRadius: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: "Thời gian"
+                        }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+
+    const gasChart = createChart(
+        "gasChart",
+        "Nồng độ khí gas (ADC)",
+        "#0284c7"
+    );
+
+    const temperatureChart = createChart(
+        "temperatureChart",
+        "Nhiệt độ (°C)",
+        "#ea580c"
+    );
+
+    function addChartPoint(chart, value) {
+        const now = new Date().toLocaleTimeString("vi-VN");
+
+        chart.data.labels.push(now);
+        chart.data.datasets[0].data.push(value);
+
+        if (chart.data.labels.length > 20) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+        }
+
+        chart.update("none");
+    }
+
+    // ======================================
+    // 3. CAP NHAT TRANG THAI CANH BAO
+    // ======================================
+
+    function updateAlarm() {
+        const alarmText = document.getElementById("alarmText");
+        const alarmBadge = document.getElementById("alarmBadge");
+
+        if (gasValue === null && temperatureValue === null) {
+            alarmText.textContent = "Đang chờ dữ liệu từ ESP32";
+            alarmBadge.textContent = "ĐANG CHỜ";
+            alarmBadge.className = "status-badge waiting";
+            return;
+        }
+
+        // Tinh canh bao theo nguong cam bien
+        const isDanger =
+            (gasValue !== null && gasValue >= GAS_THRESHOLD) ||
+            (temperatureValue !== null &&
+             temperatureValue !== -127 &&
+             temperatureValue >= TEMP_THRESHOLD);
+
+        if (isDanger) {
+            alarmText.textContent = "CẢNH BÁO! Phát hiện nguy cơ cháy";
+            alarmBadge.textContent = "NGUY HIỂM";
+            alarmBadge.className = "status-badge danger";
+        } else {
+            alarmText.textContent = "Môi trường đang bình thường";
+            alarmBadge.textContent = "AN TOÀN";
+            alarmBadge.className = "status-badge";
+        }
+    }
+
+    // ======================================
+    // 4. CAP NHAT NUT DIEU KHIEN
+    // ======================================
+
+    function updateDeviceButtons() {
+        const connected = client.connected;
+        const manual = currentMode === "MANUAL";
+
+        document.getElementById("fanOn").disabled =
+            !connected || !manual;
+        document.getElementById("fanOff").disabled =
+            !connected || !manual;
+
+        document.getElementById("pumpOn").disabled =
+            !connected || !manual;
+        document.getElementById("pumpOff").disabled =
+            !connected || !manual;
+
+        document.getElementById("modeSelect").disabled = !connected;
+
+        const modeState = document.getElementById("modeState");
+
+        if (!connected) {
+            modeState.textContent = "Chưa kết nối MQTT";
+        } else if (!modeConfirmed) {
+            modeState.textContent = "Đang đồng bộ chế độ với ESP32...";
+        } else if (manual) {
+            modeState.textContent =
+                "Chế độ: MANUAL - Có thể điều khiển bằng nút";
+        } else {
+            modeState.textContent =
+                "Chế độ: AUTO - ESP32 tự động điều khiển";
+        }
+    }
+
+    function displayDeviceState(elementId, value) {
+        const element = document.getElementById(elementId);
+        const normalized = String(value).trim().toUpperCase();
+
+        if (["ON", "1", "TRUE"].includes(normalized)) {
+            element.textContent = "ĐANG BẬT";
+            element.style.color = "#16a34a";
+        } else if (["OFF", "0", "FALSE"].includes(normalized)) {
+            element.textContent = "ĐANG TẮT";
+            element.style.color = "#64748b";
+        } else {
+            element.textContent = value;
+            element.style.color = "#334155";
+        }
+    }
+
+    // ======================================
+    // 5. KET NOI MQTT
+    // ======================================
+
+    const client = mqtt.connect(MQTT_URL, {
+        clientId: "FireGuardWeb_" +
+            Math.random().toString(16).slice(2, 10),
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: 3000
+    });
+
+    client.on("connect", function () {
+        connectionStatus.textContent = "● MQTT đã kết nối";
+        connectionStatus.style.background = "#166534";
+
+        client.subscribe([
+            topics.gas,
+            topics.temperature,
+            topics.alarm,
+            topics.fanState,
+            topics.pumpState,
+            topics.mode
+        ], function (error) {
+            if (error) {
+                console.error("Lỗi subscribe MQTT:", error);
+            } else {
+                console.log("Đã đăng ký các topic MQTT");
+            }
+        });
+
+        updateDeviceButtons();
+    });
+
+    client.on("reconnect", function () {
+        connectionStatus.textContent = "● Đang kết nối lại...";
+        connectionStatus.style.background = "#92400e";
+        updateDeviceButtons();
+    });
+
+    client.on("offline", function () {
+        connectionStatus.textContent = "● MQTT ngoại tuyến";
+        connectionStatus.style.background = "#991b1b";
+        updateDeviceButtons();
+    });
+
+    client.on("close", function () {
+        updateDeviceButtons();
+    });
+
+    client.on("error", function (error) {
+        console.error("MQTT error:", error);
+        connectionStatus.textContent = "● Lỗi kết nối MQTT";
+        connectionStatus.style.background = "#991b1b";
+    });
+
+    // ======================================
+    // 6. NHAN DU LIEU TU ESP32
+    // ======================================
+
+    client.on("message", function (topic, message) {
+        const value = message.toString().trim();
+
+        console.log("MQTT:", topic, "=", value);
+
+        if (topic === topics.gas) {
+            const number = Number(value);
+
+            if (Number.isFinite(number)) {
+                gasValue = number;
+
+                document.getElementById("gasValue").textContent =
+                    number.toLocaleString("vi-VN");
+
+                addChartPoint(gasChart, number);
+            }
+        }
+
+        else if (topic === topics.temperature) {
+            const number = Number(value);
+
+            if (Number.isFinite(number) && number !== -127) {
+                temperatureValue = number;
+
+                document.getElementById("temperatureValue").textContent =
+                    number.toFixed(1);
+
+                addChartPoint(temperatureChart, number);
+            }
+        }
+
+        else if (topic === topics.alarm) {
+            alarmMessage = value;
+        }
+
+        else if (topic === topics.fanState) {
+            displayDeviceState("fanState", value);
+        }
+
+        else if (topic === topics.pumpState) {
+            displayDeviceState("pumpState", value);
+        }
+
+        // Chi nhan trang thai mode tu ESP32
+        // Khong dung topic trang thai de gui lenh
+        else if (topic === topics.mode) {
+            const normalized = value.toUpperCase();
+
+            if (normalized === "AUTO" || normalized === "MANUAL") {
+                currentMode = normalized;
+                modeConfirmed = true;
+
+                document.getElementById("modeSelect").value =
+                    normalized;
+
+                updateDeviceButtons();
+            }
+        }
+
+        updateAlarm();
+    });
+
+    // ======================================
+    // 7. GUI LENH BAT/TAT QUAT VA BOM
+    // ======================================
+
+    function controlDevice(device, command) {
+        if (!client.connected) {
+            alert("Chưa kết nối MQTT. Hãy kiểm tra kết nối!");
+            return;
+        }
+
+        if (!modeConfirmed || currentMode !== "MANUAL") {
+            alert("Hãy chuyển sang MANUAL và chờ ESP32 xác nhận!");
+            return;
+        }
+
+        const topic = device === "fan"
+            ? topics.fanCmd
+            : topics.pumpCmd;
+
+        client.publish(topic, command, { qos: 0 }, function (error) {
+            if (error) {
+                alert("Gửi lệnh thất bại!");
+                console.error(error);
+            } else {
+                console.log("Đã gửi lệnh:", topic, command);
+            }
+        });
+    }
+
+    // ======================================
+    // 8. GUI LENH CHUYEN CHE DO
+    // ======================================
+
+    document.getElementById("modeSelect")
+        .addEventListener("change", function () {
+            const selectedMode = this.value;
+
+            if (!client.connected) {
+                alert("MQTT chưa kết nối!");
+                this.value = currentMode;
+                return;
+            }
+
+            // Gui lenh vao topic RIENG
+            // ESP32 se phan hoi trang thai o topic topics.mode
+            client.publish(
+                topics.modeCmd,
+                selectedMode,
+                { qos: 0 },
+                function (error) {
+                    if (error) {
+                        alert("Không gửi được lệnh đổi chế độ!");
+                        console.error(error);
+                    } else {
+                        console.log(
+                            "Đã gửi yêu cầu đổi chế độ:",
+                            selectedMode
+                        );
+                    }
+                }
+            );
+        });
+
+    updateDeviceButtons();
+</script>
+
+</body>
+</html>
